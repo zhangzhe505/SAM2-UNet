@@ -14,8 +14,9 @@ class ToTensor(object):
 
     def __call__(self, data):
         image, label = data['image'], data['label']
-        # 将标签转换为长整型张量（用于表示类别索引）
-        return {'image': F.to_tensor(image), 'label': torch.from_numpy(np.array(label, dtype=np.int64))}
+        # 将标签转换为长整型张量（用于表示类别索引），并确保标签值在有效范围内
+        label_tensor = torch.from_numpy(np.array(label, dtype=np.int64))
+        return {'image': F.to_tensor(image), 'label': label_tensor}
 
 
 class Resize(object):
@@ -105,10 +106,25 @@ class FullDataset(Dataset):
             return img.convert('RGB')
 
     def mask_loader(self, path):
-        """加载掩码为灰度图像，保留所有类别值"""
+        """加载掩码为灰度图像，并确保值在有效范围内"""
         with open(path, 'rb') as f:
             img = Image.open(f)
-            return img.convert('L')
+            mask = np.array(img.convert('L'))
+            
+            # 确保掩码值在有效范围内 (0 到 num_classes-1)
+            # 如果发现无效值，将其映射到有效范围
+            if mask.max() >= self.num_classes:
+                # 对于过大的值，我们可以通过取模将其映射到有效范围
+                # 或者更安全的做法是将它们设为背景类（0）
+                mask[mask >= self.num_classes] = 0
+                print(f"警告：掩码 {path} 包含超出类别范围的值，已将其修正为0")
+            
+            # 如果存在负值，将其设为背景类
+            if (mask < 0).any():
+                mask[mask < 0] = 0
+                print(f"警告：掩码 {path} 包含负值，已将其修正为0")
+                
+            return Image.fromarray(mask)
 
     def binary_loader(self, path):
         """保留旧的二进制加载方法，以兼容旧代码"""

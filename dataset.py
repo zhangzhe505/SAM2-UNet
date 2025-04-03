@@ -106,25 +106,53 @@ class FullDataset(Dataset):
             return img.convert('RGB')
 
     def mask_loader(self, path):
-        """加载掩码为灰度图像，并确保值在有效范围内"""
+        """加载掩码为灰度图像，并将灰度值映射到类别索引（0-3）"""
         with open(path, 'rb') as f:
             img = Image.open(f)
             mask = np.array(img.convert('L'))
             
-            # 确保掩码值在有效范围内 (0 到 num_classes-1)
-            # 如果发现无效值，将其映射到有效范围
-            if mask.max() >= self.num_classes:
-                # 对于过大的值，我们可以通过取模将其映射到有效范围
-                # 或者更安全的做法是将它们设为背景类（0）
-                mask[mask >= self.num_classes] = 0
-                print(f"警告：掩码 {path} 包含超出类别范围的值，已将其修正为0")
+            # 打印原始掩码中的唯一值，用于调试
+            unique_values = np.unique(mask)
             
-            # 如果存在负值，将其设为背景类
-            if (mask < 0).any():
-                mask[mask < 0] = 0
-                print(f"警告：掩码 {path} 包含负值，已将其修正为0")
+            # 根据灰度值范围映射到类别索引
+            # 假设灰度值分布如下（可根据实际情况调整）：
+            # 0 -> 背景 (类别0)
+            # 1-80 -> 类别1
+            # 81-160 -> 类别2
+            # 161-255 -> 类别3
+            
+            # 创建新的掩码数组
+            mapped_mask = np.zeros_like(mask)
+            
+            # 映射规则（根据实际掩码情况可能需要调整）
+            if 0 in unique_values:
+                mapped_mask[mask == 0] = 0  # 背景
+            
+            # 检查非零值并映射
+            non_zero_values = unique_values[unique_values > 0]
+            if len(non_zero_values) > 0:
+                # 如果只有一个非零值，映射为类别1
+                if len(non_zero_values) == 1:
+                    mapped_mask[mask == non_zero_values[0]] = 1
                 
-            return Image.fromarray(mask)
+                # 如果有2个非零值，映射为类别1和2
+                elif len(non_zero_values) == 2:
+                    mapped_mask[mask == non_zero_values[0]] = 1
+                    mapped_mask[mask == non_zero_values[1]] = 2
+                
+                # 如果有3个或更多非零值，映射前3个为类别1、2、3
+                elif len(non_zero_values) >= 3:
+                    sorted_values = np.sort(non_zero_values)
+                    mapped_mask[mask == sorted_values[0]] = 1
+                    mapped_mask[mask == sorted_values[1]] = 2
+                    # 将剩余的较高值都映射到类别3
+                    for val in sorted_values[2:]:
+                        mapped_mask[mask == val] = 3
+            
+            # 打印映射结果，用于调试
+            print(f"掩码 {path} 原始唯一值: {unique_values}, 映射后唯一值: {np.unique(mapped_mask)}")
+            
+            return Image.fromarray(mapped_mask.astype(np.uint8))
 
     def binary_loader(self, path):
         """保留旧的二进制加载方法，以兼容旧代码"""

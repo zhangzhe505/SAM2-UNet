@@ -111,20 +111,13 @@ class FullDataset(Dataset):
             img = Image.open(f)
             mask = np.array(img.convert('L'))
             
-            # 打印原始掩码中的唯一值，用于调试
-            unique_values = np.unique(mask)
-            
             # 根据灰度值范围映射到类别索引
-            # 假设灰度值分布如下（可根据实际情况调整）：
-            # 0 -> 背景 (类别0)
-            # 1-80 -> 类别1
-            # 81-160 -> 类别2
-            # 161-255 -> 类别3
+            unique_values = np.unique(mask)
             
             # 创建新的掩码数组
             mapped_mask = np.zeros_like(mask)
             
-            # 映射规则（根据实际掩码情况可能需要调整）
+            # 映射规则
             if 0 in unique_values:
                 mapped_mask[mask == 0] = 0  # 背景
             
@@ -148,9 +141,6 @@ class FullDataset(Dataset):
                     # 将剩余的较高值都映射到类别3
                     for val in sorted_values[2:]:
                         mapped_mask[mask == val] = 3
-            
-            # 打印映射结果，用于调试
-            print(f"掩码 {path} 原始唯一值: {unique_values}, 映射后唯一值: {np.unique(mapped_mask)}")
             
             return Image.fromarray(mapped_mask.astype(np.uint8))
 

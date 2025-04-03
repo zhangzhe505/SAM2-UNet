@@ -7,13 +7,15 @@ from torchvision.transforms import InterpolationMode
 from torch.utils.data import Dataset
 from torchvision import transforms
 from PIL import Image
+import torch
 
 
 class ToTensor(object):
 
     def __call__(self, data):
         image, label = data['image'], data['label']
-        return {'image': F.to_tensor(image), 'label': F.to_tensor(label)}
+        # 将标签转换为长整型张量（用于表示类别索引）
+        return {'image': F.to_tensor(image), 'label': torch.from_numpy(np.array(label, dtype=np.int64))}
 
 
 class Resize(object):
@@ -65,11 +67,13 @@ class Normalize(object):
     
 
 class FullDataset(Dataset):
-    def __init__(self, image_root, gt_root, size, mode):
+    def __init__(self, image_root, gt_root, size, mode, num_classes=4):
         self.images = [image_root + f for f in os.listdir(image_root) if f.endswith('.jpg') or f.endswith('.png')]
         self.gts = [gt_root + f for f in os.listdir(gt_root) if f.endswith('.png')]
         self.images = sorted(self.images)
         self.gts = sorted(self.gts)
+        self.num_classes = num_classes
+        
         if mode == 'train':
             self.transform = transforms.Compose([
                 Resize((size, size)),
@@ -87,7 +91,7 @@ class FullDataset(Dataset):
 
     def __getitem__(self, idx):
         image = self.rgb_loader(self.images[idx])
-        label = self.binary_loader(self.gts[idx])
+        label = self.mask_loader(self.gts[idx])
         data = {'image': image, 'label': label}
         data = self.transform(data)
         return data
@@ -100,11 +104,18 @@ class FullDataset(Dataset):
             img = Image.open(f)
             return img.convert('RGB')
 
-    def binary_loader(self, path):
+    def mask_loader(self, path):
+        """加载掩码为灰度图像，保留所有类别值"""
         with open(path, 'rb') as f:
             img = Image.open(f)
             return img.convert('L')
-        
+
+    def binary_loader(self, path):
+        """保留旧的二进制加载方法，以兼容旧代码"""
+        with open(path, 'rb') as f:
+            img = Image.open(f)
+            return img.convert('L')
+
 
 class TestDataset:
     def __init__(self, image_root, gt_root, size):

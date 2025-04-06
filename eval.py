@@ -4,6 +4,22 @@ from PIL import Image
 import argparse
 from tqdm import tqdm
 
+def map_pixels_to_classes(pixels, num_classes=4):
+    """将像素值映射到类别索引"""
+    if num_classes == 4:
+        # 四类映射: [0, 85, 170, 255] -> [0, 1, 2, 3]
+        thresholds = [85, 170, 255]
+    elif num_classes == 3:
+        # 三类映射: [0, 127, 255] -> [0, 1, 2]
+        thresholds = [127, 255]
+    else:
+        raise ValueError(f"Unsupported number of classes: {num_classes}")
+    
+    mapped = np.zeros_like(pixels)
+    for i, threshold in enumerate(thresholds):
+        mapped[pixels > threshold] = i + 1
+    return mapped
+
 def calculate_metrics(pred, gt, num_classes):
     """计算分割指标"""
     metrics = {
@@ -88,6 +104,9 @@ def main():
         # 读取预测和真实值
         pred = np.array(Image.open(os.path.join(args.pred_path, pred_file)))
         gt = np.array(Image.open(os.path.join(args.gt_path, gt_file)))
+
+        # 将真实值像素值映射到类别索引
+        gt = map_pixels_to_classes(gt, args.num_classes)
 
         # 检查像素值范围
         if pred.max() >= args.num_classes or gt.max() >= args.num_classes:

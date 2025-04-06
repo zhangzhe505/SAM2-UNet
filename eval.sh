@@ -1,4 +1,4 @@
 python eval.py \
---dataset_name "<set your dataset name here>" \
---pred_path "<set your prediction result path here>" \
---gt_path "<set your ground truth path here>"
+--pred_path "/home/zhangzhe/SAM2-UNet/prediction/" \
+--gt_path "/home/zhangzhe/Opendataset_process/test/masks/" \
+--num_classes 4

@@ -8,16 +8,24 @@ def map_pixels_to_classes(pixels, num_classes=4):
     """将像素值映射到类别索引"""
     if num_classes == 4:
         # 四类映射: [0, 85, 170, 255] -> [0, 1, 2, 3]
+        # 0-84 -> 0, 85-169 -> 1, 170-254 -> 2, 255 -> 3
         thresholds = [85, 170, 255]
+        class_values = [0, 85, 170, 255]
     elif num_classes == 3:
         # 三类映射: [0, 127, 255] -> [0, 1, 2]
+        # 0-126 -> 0, 127-254 -> 1, 255 -> 2
         thresholds = [127, 255]
+        class_values = [0, 127, 255]
     else:
         raise ValueError(f"Unsupported number of classes: {num_classes}")
     
     mapped = np.zeros_like(pixels)
-    for i, threshold in enumerate(thresholds):
-        mapped[pixels > threshold] = i + 1
+    for i in range(len(class_values)):
+        if i < len(class_values) - 1:
+            mask = (pixels >= class_values[i]) & (pixels < class_values[i + 1])
+        else:
+            mask = pixels == class_values[i]
+        mapped[mask] = i
     return mapped
 
 def calculate_metrics(pred, gt, num_classes):

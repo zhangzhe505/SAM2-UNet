@@ -1,107 +1,163 @@
 import os
-import cv2
-import py_sod_metrics
+import numpy as np
+from PIL import Image
 import argparse
+from tqdm import tqdm
 
-FM = py_sod_metrics.Fmeasure()
-WFM = py_sod_metrics.WeightedFmeasure()
-SM = py_sod_metrics.Smeasure()
-EM = py_sod_metrics.Emeasure()
-MAE = py_sod_metrics.MAE()
-MSIOU = py_sod_metrics.MSIoU()
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--dataset_name", type=str, required=True, 
-                    help="path to the prediction results")
-parser.add_argument("--pred_path", type=str, required=True, 
-                    help="path to the prediction results")
-parser.add_argument("--gt_path", type=str, required=True,
-                    help="path to the ground truth masks")
-args = parser.parse_args()
-
-sample_gray = dict(with_adaptive=True, with_dynamic=True)
-sample_bin = dict(with_adaptive=False, with_dynamic=False, with_binary=True, sample_based=True)
-overall_bin = dict(with_adaptive=False, with_dynamic=False, with_binary=True, sample_based=False)
-FMv2 = py_sod_metrics.FmeasureV2(
-    metric_handlers={
-        "fm": py_sod_metrics.FmeasureHandler(**sample_gray, beta=0.3),
-        "f1": py_sod_metrics.FmeasureHandler(**sample_gray, beta=1),
-        "pre": py_sod_metrics.PrecisionHandler(**sample_gray),
-        "rec": py_sod_metrics.RecallHandler(**sample_gray),
-        "fpr": py_sod_metrics.FPRHandler(**sample_gray),
-        "iou": py_sod_metrics.IOUHandler(**sample_gray),
-        "dice": py_sod_metrics.DICEHandler(**sample_gray),
-        "spec": py_sod_metrics.SpecificityHandler(**sample_gray),
-        "ber": py_sod_metrics.BERHandler(**sample_gray),
-        "oa": py_sod_metrics.OverallAccuracyHandler(**sample_gray),
-        "kappa": py_sod_metrics.KappaHandler(**sample_gray),
-        "sample_bifm": py_sod_metrics.FmeasureHandler(**sample_bin, beta=0.3),
-        "sample_bif1": py_sod_metrics.FmeasureHandler(**sample_bin, beta=1),
-        "sample_bipre": py_sod_metrics.PrecisionHandler(**sample_bin),
-        "sample_birec": py_sod_metrics.RecallHandler(**sample_bin),
-        "sample_bifpr": py_sod_metrics.FPRHandler(**sample_bin),
-        "sample_biiou": py_sod_metrics.IOUHandler(**sample_bin),
-        "sample_bidice": py_sod_metrics.DICEHandler(**sample_bin),
-        "sample_bispec": py_sod_metrics.SpecificityHandler(**sample_bin),
-        "sample_biber": py_sod_metrics.BERHandler(**sample_bin),
-        "sample_bioa": py_sod_metrics.OverallAccuracyHandler(**sample_bin),
-        "sample_bikappa": py_sod_metrics.KappaHandler(**sample_bin),
-        "overall_bifm": py_sod_metrics.FmeasureHandler(**overall_bin, beta=0.3),
-        "overall_bif1": py_sod_metrics.FmeasureHandler(**overall_bin, beta=1),
-        "overall_bipre": py_sod_metrics.PrecisionHandler(**overall_bin),
-        "overall_birec": py_sod_metrics.RecallHandler(**overall_bin),
-        "overall_bifpr": py_sod_metrics.FPRHandler(**overall_bin),
-        "overall_biiou": py_sod_metrics.IOUHandler(**overall_bin),
-        "overall_bidice": py_sod_metrics.DICEHandler(**overall_bin),
-        "overall_bispec": py_sod_metrics.SpecificityHandler(**overall_bin),
-        "overall_biber": py_sod_metrics.BERHandler(**overall_bin),
-        "overall_bioa": py_sod_metrics.OverallAccuracyHandler(**overall_bin),
-        "overall_bikappa": py_sod_metrics.KappaHandler(**overall_bin),
+def calculate_metrics(pred, gt, num_classes):
+    """计算分割指标"""
+    metrics = {
+        'dice': np.zeros(num_classes),
+        'iou': np.zeros(num_classes),
+        'pixel_acc': 0,
+        'class_pixel_acc': np.zeros(num_classes),
+        'class_precision': np.zeros(num_classes),
+        'class_recall': np.zeros(num_classes)
     }
-)
-
-pred_root = args.pred_path
-mask_root = args.gt_path
-mask_name_list = sorted(os.listdir(mask_root))
-for i, mask_name in enumerate(mask_name_list):
-    print(f"[{i}] Processing {mask_name}...")
-    mask_path = os.path.join(mask_root, mask_name)
-    pred_path = os.path.join(pred_root, mask_name[:-4] + '.png')
-    mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-    pred = cv2.imread(pred_path, cv2.IMREAD_GRAYSCALE)
-
-    FM.step(pred=pred, gt=mask)
-    WFM.step(pred=pred, gt=mask)
-    SM.step(pred=pred, gt=mask)
-    EM.step(pred=pred, gt=mask)
-    MAE.step(pred=pred, gt=mask)
-    FMv2.step(pred=pred, gt=mask)
     
+    # 计算每个类别的指标
+    for class_idx in range(num_classes):
+        # 获取当前类别的预测和真实值
+        pred_class = (pred == class_idx)
+        gt_class = (gt == class_idx)
+        
+        # 计算交集和并集
+        intersection = np.sum(pred_class & gt_class)
+        union = np.sum(pred_class | gt_class)
+        
+        # 计算 Dice 系数
+        if union > 0:
+            metrics['dice'][class_idx] = (2 * intersection) / (np.sum(pred_class) + np.sum(gt_class))
+        
+        # 计算 IoU
+        if union > 0:
+            metrics['iou'][class_idx] = intersection / union
+        
+        # 计算精确度和召回率
+        if np.sum(gt_class) > 0:
+            metrics['class_precision'][class_idx] = intersection / (np.sum(pred_class) + 1e-6)
+            metrics['class_recall'][class_idx] = intersection / (np.sum(gt_class) + 1e-6)
+    
+    # 计算像素准确率
+    metrics['pixel_acc'] = np.sum(pred == gt) / (pred.size)
+    
+    # 计算每个类别的像素准确率
+    for class_idx in range(num_classes):
+        if np.sum(gt == class_idx) > 0:
+            metrics['class_pixel_acc'][class_idx] = np.sum((pred == class_idx) & (gt == class_idx)) / np.sum(gt == class_idx)
+    
+    return metrics
 
-fm = FM.get_results()["fm"]
-wfm = WFM.get_results()["wfm"]
-sm = SM.get_results()["sm"]
-em = EM.get_results()["em"]
-mae = MAE.get_results()["mae"]
-fmv2 = FMv2.get_results()
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pred_path", type=str, required=True, help="路径到预测结果")
+    parser.add_argument("--gt_path", type=str, required=True, help="路径到真实标签")
+    parser.add_argument("--num_classes", type=int, default=4, help="类别数量")
+    args = parser.parse_args()
+    
+    # 获取所有预测文件
+    pred_files = sorted([f for f in os.listdir(args.pred_path) if f.endswith('.png')])
+    gt_files = sorted([f for f in os.listdir(args.gt_path) if f.endswith('.png')])
+    
+    if len(pred_files) != len(gt_files):
+        raise ValueError(f"预测文件数量({len(pred_files)})和真值文件数量({len(gt_files)})不匹配")
+    
+    # 初始化总指标
+    total_metrics = {
+        'dice': np.zeros(args.num_classes),
+        'iou': np.zeros(args.num_classes),
+        'pixel_acc': 0,
+        'class_pixel_acc': np.zeros(args.num_classes),
+        'class_precision': np.zeros(args.num_classes),
+        'class_recall': np.zeros(args.num_classes)
+    }
+    
+    # 为每个类别创建列表来存储每个图像的指标
+    class_metrics = {}
+    for class_idx in range(args.num_classes):
+        class_metrics[class_idx] = {
+            'dice': [],
+            'iou': [],
+            'pixel_acc': [],
+            'precision': [],
+            'recall': []
+        }
+    
+    # 计算每个图像的指标
+    for pred_file, gt_file in tqdm(zip(pred_files, gt_files), total=len(pred_files)):
+        # 读取预测和真值
+        pred = np.array(Image.open(os.path.join(args.pred_path, pred_file)))
+        gt = np.array(Image.open(os.path.join(args.gt_path, gt_file)))
+        
+        # 确保尺寸匹配
+        if pred.shape != gt.shape:
+            raise ValueError(f"预测图像({pred.shape})和真值图像({gt.shape})尺寸不匹配")
+        
+        # 确保像素值在有效范围内
+        if pred.max() >= args.num_classes or gt.max() >= args.num_classes:
+            raise ValueError(f"像素值超出类别范围: pred.max()={pred.max()}, gt.max()={gt.max()}")
+        
+        # 计算指标
+        metrics = calculate_metrics(pred, gt, args.num_classes)
+        
+        # 累加指标
+        total_metrics['dice'] += metrics['dice']
+        total_metrics['iou'] += metrics['iou']
+        total_metrics['pixel_acc'] += metrics['pixel_acc']
+        total_metrics['class_pixel_acc'] += metrics['class_pixel_acc']
+        total_metrics['class_precision'] += metrics['class_precision']
+        total_metrics['class_recall'] += metrics['class_recall']
+        
+        # 保存每个类别的指标
+        for class_idx in range(args.num_classes):
+            if metrics['dice'][class_idx] > 0:
+                class_metrics[class_idx]['dice'].append(metrics['dice'][class_idx])
+                class_metrics[class_idx]['iou'].append(metrics['iou'][class_idx])
+                class_metrics[class_idx]['pixel_acc'].append(metrics['class_pixel_acc'][class_idx])
+                class_metrics[class_idx]['precision'].append(metrics['class_precision'][class_idx])
+                class_metrics[class_idx]['recall'].append(metrics['class_recall'][class_idx])
+    
+    # 计算平均指标
+    num_images = len(pred_files)
+    for key in total_metrics:
+        total_metrics[key] /= num_images
+    
+    # 打印整体指标
+    print("\n整体指标:")
+    print(f"平均 Dice 系数: {total_metrics['dice'].mean():.4f}")
+    print(f"平均 IoU: {total_metrics['iou'].mean():.4f}")
+    print(f"像素准确率: {total_metrics['pixel_acc']:.4f}")
+    print(f"平均精确度: {total_metrics['class_precision'].mean():.4f}")
+    print(f"平均召回率: {total_metrics['class_recall'].mean():.4f}")
+    
+    # 打印每个类别的指标
+    print("\n每个类别的指标:")
+    class_names = ['背景', '类别1', '类别2', '类别3']
+    for class_idx in range(args.num_classes):
+        print(f"\n{class_names[class_idx]}:")
+        print(f"Dice 系数: {total_metrics['dice'][class_idx]:.4f}")
+        print(f"IoU: {total_metrics['iou'][class_idx]:.4f}")
+        print(f"像素准确率: {total_metrics['class_pixel_acc'][class_idx]:.4f}")
+        print(f"精确度: {total_metrics['class_precision'][class_idx]:.4f}")
+        print(f"召回率: {total_metrics['class_recall'][class_idx]:.4f}")
+        
+        # 打印每个类别的指标分布
+        if len(class_metrics[class_idx]['dice']) > 0:
+            print(f"\n指标分布:")
+            print(f"Dice 系数 (min/max/mean): ")
+            print(f"最小值: {min(class_metrics[class_idx]['dice']):.4f}")
+            print(f"最大值: {max(class_metrics[class_idx]['dice']):.4f}")
+            print(f"平均值: {np.mean(class_metrics[class_idx]['dice']):.4f}")
+            
+            print(f"精确度 (min/max/mean): ")
+            print(f"最小值: {min(class_metrics[class_idx]['precision']):.4f}")
+            print(f"最大值: {max(class_metrics[class_idx]['precision']):.4f}")
+            print(f"平均值: {np.mean(class_metrics[class_idx]['precision']):.4f}")
+            
+            print(f"召回率 (min/max/mean): ")
+            print(f"最小值: {min(class_metrics[class_idx]['recall']):.4f}")
+            print(f"最大值: {max(class_metrics[class_idx]['recall']):.4f}")
+            print(f"平均值: {np.mean(class_metrics[class_idx]['recall']):.4f}")
 
-
-curr_results = {
-    "meandice": fmv2["dice"]["dynamic"].mean(),
-    "meaniou": fmv2["iou"]["dynamic"].mean(),
-    'Smeasure': sm,
-    "wFmeasure": wfm,  # For Marine Animal Segmentation
-    "adpFm": fm["adp"], # For Camouflaged Object Detection
-    "meanEm": em["curve"].mean(),
-    "MAE": mae,
-}
-
-print(args.dataset_name)
-print("mDice:       ", format(curr_results['meandice'], '.3f'))
-print("mIoU:        ", format(curr_results['meaniou'], '.3f'))
-print("S_{alpha}:   ", format(curr_results['Smeasure'], '.3f'))
-print("F^{w}_{beta}:", format(curr_results['wFmeasure'], '.3f'))
-print("F_{beta}:    ", format(curr_results['adpFm'], '.3f'))
-print("E_{phi}:     ", format(curr_results['meanEm'], '.3f'))
-print("MAE:         ", format(curr_results['MAE'], '.3f'))
-
+if __name__ == "__main__":
+    main()
